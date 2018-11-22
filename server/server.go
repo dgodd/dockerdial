@@ -1,12 +1,11 @@
 package main
 
 import (
-	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/hashicorp/yamux"
 )
@@ -14,30 +13,26 @@ import (
 func handleConnection(c io.ReadWriteCloser) {
 	defer c.Close()
 
-	r := bufio.NewReader(c)
-	var head string
-	var host string
-	for {
-		line, err := r.ReadString('\n')
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "HANDLER PARSE ERR:", err)
-			return
-		}
-		head += line + "\n"
-		if strings.EqualFold(line[0:5], "HOST:") {
-			host = strings.TrimSpace(line[5:])
-			break
-		}
-	}
-	conn, err := net.Dial("tcp", host+":80")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "TCP CONN ERR:", err)
+	var addrLen uint32
+	if err := binary.Read(c, binary.LittleEndian, &addrLen); err != nil {
+		fmt.Fprintf(os.Stderr, "READ ADDR LEN ERR: %s\n", err)
 		return
 	}
-	go func() {
-		conn.Write([]byte(head))
-		io.Copy(conn, c)
-	}()
+	fmt.Fprintf(os.Stderr, "ADDRLEN: %d\n", addrLen)
+
+	addr := make([]byte, addrLen)
+	if _, err := c.Read(addr); err != nil {
+		fmt.Fprintf(os.Stderr, "READ ADDR ERR: %s\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "ADDR: |%s|\n", addr)
+
+	conn, err := net.Dial("tcp", string(addr))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TCP CONN ERR: %s: %s\n", addr, err)
+		return
+	}
+	go io.Copy(conn, c)
 	io.Copy(c, conn)
 }
 
@@ -47,7 +42,7 @@ func main() {
 
 	session, err := yamux.Server(&StdinStdout{in: os.Stdin, out: os.Stdout}, nil)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		fmt.Fprintln(os.Stderr, "SESSION CREATE ERROR:", err)
 		os.Exit(1)
 	}
 	for {

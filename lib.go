@@ -2,9 +2,13 @@ package grpcstdin
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"sync"
+	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -85,14 +89,36 @@ var connOnce sync.Once
 var connSingle *grpcstdin
 var connErr error
 
-func Dial() (io.ReadWriteCloser, error) {
+func Dial(network, addr string) (net.Conn, error) {
+	// fmt.Printf("DIAL: |%s| - |%s|\n", network, addr)
+	if network != "tcp" {
+		return nil, fmt.Errorf("only tcp is implemented: %s", network)
+	}
+
 	connOnce.Do(func() {
 		connSingle, connErr = new(ioutil.Discard)
 	})
 	if connErr != nil {
 		return nil, errors.Wrap(connErr, "getting dial singleton")
 	}
-	return connSingle.session.Open()
+
+	c, err := connSingle.session.Open()
+	if err != nil {
+		return nil, err
+	}
+
+	addrLen := make([]byte, 4)
+	binary.LittleEndian.PutUint32(addrLen, uint32(len(addr)))
+	if _, err := c.Write(addrLen); err != nil {
+		c.Close()
+		return nil, err
+	}
+	if _, err := c.Write([]byte(addr)); err != nil {
+		c.Close()
+		return nil, err
+	}
+
+	return netConnFromReadWriteCloser{c}, nil
 }
 
 type StdinStdout struct {
@@ -113,4 +139,24 @@ func (s *StdinStdout) Close() error {
 		return e1
 	}
 	return e2
+}
+
+type netConnFromReadWriteCloser struct {
+	io.ReadWriteCloser
+}
+
+func (netConnFromReadWriteCloser) LocalAddr() net.Addr {
+	panic("not implemented")
+}
+func (netConnFromReadWriteCloser) RemoteAddr() net.Addr {
+	panic("not implemented")
+}
+func (netConnFromReadWriteCloser) SetDeadline(t time.Time) error {
+	panic("not implemented")
+}
+func (netConnFromReadWriteCloser) SetReadDeadline(t time.Time) error {
+	panic("not implemented")
+}
+func (netConnFromReadWriteCloser) SetWriteDeadline(t time.Time) error {
+	panic("not implemented")
 }

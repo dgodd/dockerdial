@@ -1,61 +1,34 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
-	"sync"
-	"time"
+	"io/ioutil"
+	"net/http"
+	"os"
 
 	"github.com/dgodd/grpcstdin"
 )
 
 func main() {
-	var wg sync.WaitGroup
-	wg.Add(2)
-	fmt.Println("MAIN")
+	tr := &http.Transport{Dial: grpcstdin.Dial}
+	client := &http.Client{Transport: tr}
 
-	go func() {
-		defer wg.Done()
-		c, err := grpcstdin.Dial()
-		if err != nil {
-			fmt.Println("ERR:", err)
-			return
-		}
+	resp, err := client.Get("http://example.com")
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+	io.Copy(os.Stdout, resp.Body)
+	fmt.Printf("HEADERS: %#v\n", resp.Header)
 
-		_, err = c.Write([]byte("GET / HTTP/1.1\nHOST: example.com\n\n"))
-		if err != nil {
-			fmt.Println("ERR:", err)
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-
-		var buf bytes.Buffer
-		io.Copy(&buf, c)
-		c.Close()
-		fmt.Println("EXAMPLE:", len(buf.String()), buf.String()[:200])
-	}()
-
-	go func() {
-		defer wg.Done()
-		c, err := grpcstdin.Dial()
-		if err != nil {
-			fmt.Println("ERR:", err)
-			return
-		}
-
-		_, err = c.Write([]byte("GET / HTTP/1.1\nHOST: www.google.com\n\n"))
-		if err != nil {
-			fmt.Println("ERR:", err)
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
-
-		var buf bytes.Buffer
-		io.Copy(&buf, c)
-		c.Close()
-		fmt.Println("GOOGLE:", len(buf.String()), buf.String()[:200])
-	}()
-
-	wg.Wait()
+	// Second Request
+	fmt.Println("\ngoogle")
+	resp, err = client.Get("http://google.com")
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+	io.Copy(ioutil.Discard, resp.Body)
+	fmt.Printf("HEADERS: %#v\n", resp.Header)
 }
