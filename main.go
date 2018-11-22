@@ -35,6 +35,7 @@ func main() {
 	}, &container.HostConfig{
 		AutoRemove:  true,
 		NetworkMode: "host",
+		Binds:       []string{"grpcstdingopkgmod:/go/pkg/mod"},
 	}, nil, "")
 	assertNil(err)
 	defer dockerCli.ContainerKill(ctx, ctr.ID, "SIGKILL")
@@ -65,7 +66,11 @@ func main() {
 	buf := make([]byte, 8)
 	_, err = pr.Read(buf)
 	assertNil(err)
-	fmt.Printf("RECEIVED: |%s|", buf)
+	if string(buf) != "STARTED\n" {
+		fmt.Println("ERROR: STARTED not received")
+		os.Exit(1)
+	}
+	fmt.Println("RECEIVED: STARTED")
 
 	session, err := yamux.Client(&StdinStdout{in: pr, out: res.Conn}, nil)
 	assertNil(err)
@@ -76,7 +81,7 @@ func main() {
 			return
 		}
 
-		_, err = c.Write([]byte("GET / HTTP/1.1\nConnection: close\nHost: example.com\n\n"))
+		_, err = c.Write([]byte("GET / HTTP/1.1\nHost: example.com\n\n"))
 		if err != nil {
 			fmt.Println("ERR:", err)
 			return

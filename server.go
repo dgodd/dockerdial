@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/yamux"
 )
@@ -11,7 +14,32 @@ import (
 func handleConnection(c io.ReadWriteCloser) {
 	defer c.Close()
 
-	c.Write([]byte("Hi Mom"))
+	r := bufio.NewReader(c)
+	var head string
+	var host string
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "HANDLER PARSE ERR:", err)
+			return
+		}
+		head += line + "\n"
+		if strings.EqualFold(line[0:5], "HOST:") {
+			host = strings.TrimSpace(line[5:])
+			break
+		}
+	}
+	fmt.Fprintf(os.Stderr, "DG: HOST: |%s|\n", host)
+	conn, err := net.Dial("tcp", host+":80")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "TCP CONN ERR:", err)
+		return
+	}
+	go func() {
+		conn.Write([]byte(head))
+		io.Copy(conn, c)
+	}()
+	io.Copy(c, conn)
 }
 
 func main() {
