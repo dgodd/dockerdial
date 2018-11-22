@@ -9,10 +9,11 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/alecthomas/multiplex"
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	dockercli "github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/hashicorp/yamux"
 )
 
 func main() {
@@ -25,17 +26,20 @@ func main() {
 	ctx := context.Background()
 	ctr, err := dockerCli.ContainerCreate(ctx, &container.Config{
 		Image:        "golang",
-		Cmd:          []string{"node", "run", "server.go"},
+		Cmd:          []string{"go", "run", "server.go"},
 		WorkingDir:   "/app",
+		Env:          []string{"GO111MODULE=on"},
 		OpenStdin:    true,
 		StdinOnce:    true,
 		AttachStdin:  true,
 		AttachStdout: true,
+		AttachStderr: true,
 	}, &container.HostConfig{
+		AutoRemove:  true,
 		NetworkMode: "host",
 	}, nil, "")
 	assertNil(err)
-	defer dockerCli.ContainerRemove(ctx, ctr.ID, dockertypes.ContainerRemoveOptions{})
+	defer dockerCli.ContainerKill(ctx, ctr.ID, "SIGKILL")
 	fmt.Println("DG: MAIN: 2")
 
 	r, err := CreateServerTar()
@@ -44,10 +48,14 @@ func main() {
 	assertNil(err)
 	fmt.Println("DG: MAIN: 3")
 
+	_, err = dockerCli.ContainerCommit(ctx, ctr.ID, dockertypes.ContainerCommitOptions{Reference: "dg"})
+	assertNil(err)
+
 	res, err := dockerCli.ContainerAttach(ctx, ctr.ID, dockertypes.ContainerAttachOptions{
 		Stream: true,
 		Stdin:  true,
 		Stdout: true,
+		Stderr: true,
 	})
 	assertNil(err)
 	defer res.Close()
@@ -55,16 +63,21 @@ func main() {
 
 	bodyChan, errChan := dockerCli.ContainerWait(ctx, ctr.ID, container.WaitConditionNextExit)
 	dockerCli.ContainerStart(ctx, ctr.ID, dockertypes.ContainerStartOptions{})
-	if err != nil {
-		fmt.Println("ERR: proxyDockerHostPort: START:", err)
-		return
-	}
 	fmt.Println("DG: MAIN: 5")
 
-	mx := multiplex.MultiplexedServer(res.Conn)
+	pr, pw := io.Pipe()
+	go stdcopy.StdCopy(pw, os.Stderr, res.Reader)
+
+	buf := make([]byte, 8)
+	_, err = pr.Read(buf)
+	assertNil(err)
+	fmt.Printf("RECEIVED: |%s|", buf)
+
+	session, err := yamux.Client(&StdinStdout{in: pr, out: res.Conn}, nil)
+	assertNil(err)
 	go func() {
 		fmt.Println("DG: FUNC: 0")
-		c, err := mx.Dial()
+		c, err := session.Open()
 		if err != nil {
 			fmt.Println("ERR:", err)
 			return
@@ -110,7 +123,7 @@ func CreateServerTar() (io.Reader, error) {
 		return nil, err
 	}
 	for path, txt := range map[string]string{
-		"/app/go.mod:":   "module myapp\n\ngithub.com/alecthomas/multiplex\n",
+		"/app/go.mod":    "module myapp\n\nrequire (\ngithub.com/hashicorp/yamux v0.0.0-20181012175058-2f1d1f20f75d\n)\n",
 		"/app/server.go": string(b),
 	} {
 		if err := tw.WriteHeader(&tar.Header{Name: path, Size: int64(len(txt)), Mode: 0666}); err != nil {
@@ -124,4 +137,24 @@ func CreateServerTar() (io.Reader, error) {
 		return nil, err
 	}
 	return bytes.NewReader(buf.Bytes()), nil
+}
+
+type StdinStdout struct {
+	in  io.ReadCloser
+	out io.WriteCloser
+}
+
+func (s *StdinStdout) Read(b []byte) (int, error) {
+	return s.in.Read(b)
+}
+func (s *StdinStdout) Write(b []byte) (int, error) {
+	return s.out.Write(b)
+}
+func (s *StdinStdout) Close() error {
+	e1 := s.in.Close()
+	e2 := s.out.Close()
+	if e1 != nil {
+		return e1
+	}
+	return e2
 }

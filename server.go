@@ -2,21 +2,32 @@ package main
 
 import (
 	"fmt"
-	"github.com/alecthomas/multiplex"
+	"io"
+	"os"
+
+	"github.com/hashicorp/yamux"
 )
 
 func handleConnection(c io.ReadWriteCloser) {
-	// defer c.Close()
-	c.Close()
+	defer c.Close()
 
 	c.Write([]byte("Hi Mom"))
 }
 
 func main() {
-	mx := multiplex.MultiplexedServer(&StdinStdout{in: os.Stdin, out: os.Stdout})
+	fmt.Println("STARTED")
+	session, err := yamux.Server(&StdinStdout{in: os.Stdin, out: os.Stdout}, nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		os.Exit(1)
+	}
 	for {
-		c, err := mx.Accept()
-		go handleConnection(c)
+		stream, err := session.Accept()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "STREAM ERROR:", err)
+			return
+		}
+		go handleConnection(stream)
 	}
 }
 

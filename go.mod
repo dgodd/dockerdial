@@ -13,6 +13,7 @@ require (
 	github.com/google/go-containerregistry v0.0.0-20181023232207-eb57122f1bf9
 	github.com/google/uuid v0.0.0-20171129191014-dec09d789f3d
 	github.com/gorilla/mux v1.6.2 // indirect
+	github.com/hashicorp/yamux v0.0.0-20181012175058-2f1d1f20f75d // indirect
 	github.com/pkg/errors v0.8.0
 	github.com/sclevine/spec v1.0.0
 	github.com/spf13/cobra v0.0.3
