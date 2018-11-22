@@ -81,7 +81,23 @@ func main() {
 			return
 		}
 
-		_, err = c.Write([]byte("GET / HTTP/1.1\nHost: example.com\n\n"))
+		_, err = c.Write([]byte("GET / HTTP/1.1\nHOST: example.com\n\n"))
+		if err != nil {
+			fmt.Println("ERR:", err)
+			return
+		}
+
+		io.Copy(os.Stdout, c)
+		c.Close()
+	}()
+	go func() {
+		c, err := session.Open()
+		if err != nil {
+			fmt.Println("ERR:", err)
+			return
+		}
+
+		_, err = c.Write([]byte("GET / HTTP/1.1\nHOST: www.google.com\n\n"))
 		if err != nil {
 			fmt.Println("ERR:", err)
 			return
