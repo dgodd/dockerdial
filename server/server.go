@@ -44,6 +44,8 @@ func handleConnection(c io.ReadWriteCloser) {
 
 func main() {
 	fmt.Println("STARTED")
+	fmt.Fprintln(os.Stderr, "STARTED")
+
 	session, err := yamux.Server(&StdinStdout{in: os.Stdin, out: os.Stdout}, nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
