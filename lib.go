@@ -1,4 +1,4 @@
-package grpcstdin
+package dockerdial
 
 import (
 	"context"
@@ -18,21 +18,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-type grpcstdin struct {
+type dockerdial struct {
 	ctrID   string
 	session *yamux.Session
 }
 
-func new(stderr io.Writer) (*grpcstdin, error) {
+func new(stderr io.Writer) (*dockerdial, error) {
 	dockerCli, err := dockercli.NewClientWithOpts(dockercli.FromEnv, dockercli.WithVersion("1.38"))
 	if err != nil {
-		return nil, errors.Wrap(err, "grpcstdin: connect to docker:")
+		return nil, errors.Wrap(err, "dockerdial: connect to docker:")
 	}
 
-	s := &grpcstdin{}
+	s := &dockerdial{}
 	ctx := context.Background()
 	ctr, err := dockerCli.ContainerCreate(ctx, &container.Config{
-		Image:        "dgodd/grpcstdinserver",
+		Image:        "dgodd/dockerdial:v1",
 		OpenStdin:    true,
 		StdinOnce:    true,
 		AttachStdin:  true,
@@ -43,7 +43,7 @@ func new(stderr io.Writer) (*grpcstdin, error) {
 		NetworkMode: "host",
 	}, nil, "")
 	if err != nil {
-		return nil, errors.Wrap(err, "grpcstdin: create container:")
+		return nil, errors.Wrap(err, "dockerdial: create container:")
 	}
 	s.ctrID = ctr.ID
 
@@ -55,13 +55,13 @@ func new(stderr io.Writer) (*grpcstdin, error) {
 	})
 	if err != nil {
 		dockerCli.ContainerRemove(ctx, ctr.ID, dockertypes.ContainerRemoveOptions{})
-		return nil, errors.Wrap(err, "grpcstdin: attach:")
+		return nil, errors.Wrap(err, "dockerdial: attach:")
 	}
 
 	err = dockerCli.ContainerStart(ctx, ctr.ID, dockertypes.ContainerStartOptions{})
 	if err != nil {
 		dockerCli.ContainerRemove(ctx, ctr.ID, dockertypes.ContainerRemoveOptions{})
-		return nil, errors.Wrap(err, "grpcstdin: attach:")
+		return nil, errors.Wrap(err, "dockerdial: attach:")
 	}
 
 	pr, pw := io.Pipe()
@@ -72,21 +72,21 @@ func new(stderr io.Writer) (*grpcstdin, error) {
 	if string(buf) != "STARTED\n" {
 		res.Close()
 		dockerCli.ContainerKill(ctx, ctr.ID, "SIGKILL")
-		return nil, errors.New("grpcstdin: did not read started")
+		return nil, errors.New("dockerdial: did not read started")
 	}
 
 	s.session, err = yamux.Client(&StdinStdout{in: pr, out: res.Conn}, nil)
 	if string(buf) != "STARTED\n" {
 		res.Close()
 		dockerCli.ContainerKill(ctx, ctr.ID, "SIGKILL")
-		return nil, errors.New("grpcstdin: create session")
+		return nil, errors.New("dockerdial: create session")
 	}
 
 	return s, nil
 }
 
 var connOnce sync.Once
-var connSingle *grpcstdin
+var connSingle *dockerdial
 var connErr error
 
 func Dial(network, addr string) (net.Conn, error) {

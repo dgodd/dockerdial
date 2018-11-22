@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/dgodd/grpcstdin"
+	"github.com/dgodd/dockerdial"
 )
 
 func main() {
-	tr := &http.Transport{Dial: grpcstdin.Dial}
+	tr := &http.Transport{Dial: dockerdial.Dial}
 	client := &http.Client{Transport: tr}
 
 	resp, err := client.Get("http://example.com")
