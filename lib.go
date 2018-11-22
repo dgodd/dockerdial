@@ -31,6 +31,14 @@ func new(stderr io.Writer) (*dockerdial, error) {
 
 	s := &dockerdial{}
 	ctx := context.Background()
+
+	pullBody, err := dockerCli.ImagePull(ctx, "dgodd/dockerdial:v1", dockertypes.ImagePullOptions{})
+	if err != nil {
+		return nil, errors.Wrap(err, "dockerdial: pull image:")
+	}
+	io.Copy(ioutil.Discard, pullBody)
+	pullBody.Close()
+
 	ctr, err := dockerCli.ContainerCreate(ctx, &container.Config{
 		Image:        "dgodd/dockerdial:v1",
 		OpenStdin:    true,
