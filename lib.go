@@ -2,9 +2,8 @@ package grpcstdin
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os"
+	"io/ioutil"
 	"sync"
 
 	dockertypes "github.com/docker/docker/api/types"
@@ -21,13 +20,11 @@ type grpcstdin struct {
 }
 
 func new(stderr io.Writer) (*grpcstdin, error) {
-	fmt.Println("DG: NEW: 0")
 	dockerCli, err := dockercli.NewClientWithOpts(dockercli.FromEnv, dockercli.WithVersion("1.38"))
 	if err != nil {
 		return nil, errors.Wrap(err, "grpcstdin: connect to docker:")
 	}
 
-	fmt.Println("DG: NEW: 1")
 	s := &grpcstdin{}
 	ctx := context.Background()
 	ctr, err := dockerCli.ContainerCreate(ctx, &container.Config{
@@ -46,7 +43,6 @@ func new(stderr io.Writer) (*grpcstdin, error) {
 	}
 	s.ctrID = ctr.ID
 
-	fmt.Println("DG: NEW: 2")
 	res, err := dockerCli.ContainerAttach(ctx, ctr.ID, dockertypes.ContainerAttachOptions{
 		Stream: true,
 		Stdin:  true,
@@ -64,11 +60,9 @@ func new(stderr io.Writer) (*grpcstdin, error) {
 		return nil, errors.Wrap(err, "grpcstdin: attach:")
 	}
 
-	fmt.Println("DG: NEW: 3")
 	pr, pw := io.Pipe()
 	go stdcopy.StdCopy(pw, stderr, res.Reader)
 
-	fmt.Println("DG: NEW: 4")
 	buf := make([]byte, 8)
 	_, err = pr.Read(buf)
 	if string(buf) != "STARTED\n" {
@@ -77,7 +71,6 @@ func new(stderr io.Writer) (*grpcstdin, error) {
 		return nil, errors.New("grpcstdin: did not read started")
 	}
 
-	fmt.Println("DG: NEW: 5")
 	s.session, err = yamux.Client(&StdinStdout{in: pr, out: res.Conn}, nil)
 	if string(buf) != "STARTED\n" {
 		res.Close()
@@ -85,7 +78,6 @@ func new(stderr io.Writer) (*grpcstdin, error) {
 		return nil, errors.New("grpcstdin: create session")
 	}
 
-	fmt.Println("DG: NEW: 6")
 	return s, nil
 }
 
@@ -94,14 +86,12 @@ var connSingle *grpcstdin
 var connErr error
 
 func Dial() (io.ReadWriteCloser, error) {
-	fmt.Println("DG: DIAL")
 	connOnce.Do(func() {
-		connSingle, connErr = new(os.Stderr)
+		connSingle, connErr = new(ioutil.Discard)
 	})
 	if connErr != nil {
 		return nil, errors.Wrap(connErr, "getting dial singleton")
 	}
-	fmt.Println("DG: DIAL SESSION:", connSingle.session)
 	return connSingle.session.Open()
 }
 

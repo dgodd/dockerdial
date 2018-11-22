@@ -29,7 +29,6 @@ func handleConnection(c io.ReadWriteCloser) {
 			break
 		}
 	}
-	fmt.Fprintf(os.Stderr, "DG: HOST: |%s|\n", host)
 	conn, err := net.Dial("tcp", host+":80")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "TCP CONN ERR:", err)
