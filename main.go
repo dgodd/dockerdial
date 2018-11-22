@@ -1,13 +1,11 @@
 package main
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
+	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -23,10 +21,7 @@ func main() {
 	// url := "http://example.com"
 	ctx := context.Background()
 	ctr, err := dockerCli.ContainerCreate(ctx, &container.Config{
-		Image:        "golang",
-		Cmd:          []string{"go", "run", "server.go"},
-		WorkingDir:   "/app",
-		Env:          []string{"GO111MODULE=on"},
+		Image:        "dgodd/grpcstdinserver",
 		OpenStdin:    true,
 		StdinOnce:    true,
 		AttachStdin:  true,
@@ -35,18 +30,9 @@ func main() {
 	}, &container.HostConfig{
 		AutoRemove:  true,
 		NetworkMode: "host",
-		Binds:       []string{"grpcstdingopkgmod:/go/pkg/mod"},
 	}, nil, "")
 	assertNil(err)
 	defer dockerCli.ContainerKill(ctx, ctr.ID, "SIGKILL")
-
-	r, err := CreateServerTar()
-	assertNil(err)
-	err = dockerCli.CopyToContainer(ctx, ctr.ID, "/", r, dockertypes.CopyToContainerOptions{})
-	assertNil(err)
-
-	_, err = dockerCli.ContainerCommit(ctx, ctr.ID, dockertypes.ContainerCommitOptions{Reference: "dg"})
-	assertNil(err)
 
 	res, err := dockerCli.ContainerAttach(ctx, ctr.ID, dockertypes.ContainerAttachOptions{
 		Stream: true,
@@ -86,6 +72,7 @@ func main() {
 			fmt.Println("ERR:", err)
 			return
 		}
+		time.Sleep(2 * time.Millisecond)
 
 		io.Copy(os.Stdout, c)
 		c.Close()
@@ -102,6 +89,7 @@ func main() {
 			fmt.Println("ERR:", err)
 			return
 		}
+		time.Sleep(2 * time.Millisecond)
 
 		io.Copy(os.Stdout, c)
 		c.Close()
@@ -122,30 +110,6 @@ func assertNil(err error) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func CreateServerTar() (io.Reader, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	b, err := ioutil.ReadFile("server.go")
-	if err != nil {
-		return nil, err
-	}
-	for path, txt := range map[string]string{
-		"/app/go.mod":    "module myapp\n\nrequire (\ngithub.com/hashicorp/yamux v0.0.0-20181012175058-2f1d1f20f75d\n)\n",
-		"/app/server.go": string(b),
-	} {
-		if err := tw.WriteHeader(&tar.Header{Name: path, Size: int64(len(txt)), Mode: 0666}); err != nil {
-			return nil, err
-		}
-		if _, err := tw.Write([]byte(txt)); err != nil {
-			return nil, err
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	return bytes.NewReader(buf.Bytes()), nil
 }
 
 type StdinStdout struct {
